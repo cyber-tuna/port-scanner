@@ -38,44 +38,69 @@ print 'target_list     =', results.target_list
 print 'timeout     =', results.timeout
 #print 'port range     =', results.port_range	
 
-low_port, high_port = results.port_range.split('-')
+if results.port_range == '-': results.port_range = '1-65535'
+
+if '-' in results.port_range:
+    low_port, high_port = results.port_range.split('-')
+else:
+    low_port = results.port_range
+    high_port = results.port_range
+
+
 print "low port",low_port
 print "high port",high_port
 
+tcp_ports = []
+udp_ports = []
+
 def main():
-    # if(results.target_list != None): #Target list supplied
-    #     with open(results.target_list) as f:
-    #             for line in f:
-    #                 print line
-    # else:	#Target IP supplied
-    #     print "target"
     
-    remoteServerIP  = socket.gethostbyname(results.target_ip)
-
-    if(results.sT):
-        print "Scanning TCP" 
-        scan_host(remoteServerIP, socket.SOCK_STREAM)
-    if(results.sU): 
-        print "Scanning UDP"
-        scan_host(remoteServerIP, socket.SOCK_DGRAM)
-
-    open_ports = []
-
     t1 = datetime.now()
 
-    # Checking the time again
-    t2 = datetime.now()
+    if(results.target_list != None): #Target list supplied
+        with open(results.target_list) as f:
+                for line in f:
+                    remoteServerIP  = socket.gethostbyname(line) 
+                    if(results.sT): scan_host_tcp(remoteServerIP)
+                    if(results.sU): scan_host_udp(remoteServerIP)
+    else:   #Target IP supplied
+        remoteServerIP  = socket.gethostbyname(results.target_ip) 
+        if(results.sT): scan_host_tcp(remoteServerIP)
+        if(results.sU): scan_host_udp(remoteServerIP)
 
-    # Calculates the difference of time, to see how long it took to run the script
-    total =  t2 - t1
+    t2 = datetime.now()
+    total = t2-t1
 
     # Printing the information to screen
     print 'Scanning Completed in: ', total, "seconds."
 
-    print "Open Ports:"
-    print open_ports
+    print "Open TCP Ports:",
+    print tcp_ports
 
+    print "Open UDP Ports:",
+    print udp_ports
 
+def scan_host_udp(ip_address):
+    for port in range(int(low_port),int(high_port)+1):
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.settimeout(float(results.timeout))
+            s.sendto("TEST LINE", (ip_address, port))
+            recv, svr = s.recvfrom(255)
+            print recv
+            print svr
+        except Exception,e:
+            try:
+                print e 
+                errno, errtxt = e
+            except ValueError:
+                udp_ports.append(port)
+                print "{",ip_address,"}", "UDP Port:",port, " ",
+                print " OPEN/FILTERED"
+            else:
+                print "{",ip_address,"}","UDP Port:",port, " ",
+                print " CLOSED"
+        s.close()
 
 def scan_host_tcp(ip_address):
     try:
@@ -85,11 +110,11 @@ def scan_host_tcp(ip_address):
             r = s.connect_ex((ip_address, port))
             
             if(r == 0):
-                # open_ports.append(port) #TODO Make list global
-                print "Port:",port, " ",
+                tcp_ports.append(port)
+                print "{",ip_address,"}", "TCP Port:",port, " ",
                 print "	OPEN"
             elif (results.v):
-                print "Port:",port, " ",
+                print "{",ip_address,"}","TCP Port:",port, " ",
                 print "	CLOSED"
 
                 s.close()
