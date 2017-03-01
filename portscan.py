@@ -27,6 +27,9 @@ parser.add_argument('-timeout', action='store', dest='timeout',
 
 parser.add_argument("-v", help="Turn on verbose mode",
                     action="store_true")
+
+parser.add_argument("-tr", help="Perform traceroute",
+                    action="store_true")
                     
 parser.add_argument("-sT", help="Perform TCP scan", action="store_true")
 parser.add_argument("-sU", help="Perform UDP scan", action="store_true")
@@ -57,58 +60,100 @@ def main():
     
     t1 = datetime.now()
 
+
     if(results.target_list != None): #Target list supplied
         with open(results.target_list) as f:
                 for line in f:
                     remoteServerIP  = socket.gethostbyname(line) 
                     if(results.sT): scan_host_tcp(remoteServerIP)
                     if(results.sU): scan_host_udp(remoteServerIP)
+                    if(results.tr): traceroute(remoteServerIP)
     else:   #Target IP supplied
         remoteServerIP  = socket.gethostbyname(results.target_ip) 
         if(results.sT): scan_host_tcp(remoteServerIP)
         if(results.sU): scan_host_udp(remoteServerIP)
+        if(results.tr): traceroute(remoteServerIP)
 
     t2 = datetime.now()
     total = t2-t1
 
-    # Printing the information to screen
+    print "<--------------SUMMARY------------------------------->"
     print 'Scanning Completed in: ', total, "seconds."
 
     print "Open TCP Ports:",
     print tcp_ports
 
-    print "Open UDP Ports:",
+    print "Open/Filtered UDP Ports:",
     print udp_ports
 
 def scan_host_udp(ip_address):
+    print "<--------------UDP SCAN------------------------------>"
     for port in range(int(low_port),int(high_port)+1):
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.settimeout(float(results.timeout))
             s.sendto("TEST LINE", (ip_address, port))
             recv, svr = s.recvfrom(255)
-            print recv
-            print svr
+            # print recv
+            # print svr
         except Exception,e:
             try:
-                print e 
+                # print e 
                 errno, errtxt = e
             except ValueError:
                 udp_ports.append(port)
                 print "{",ip_address,"}", "UDP Port:",port, " ",
                 print " OPEN/FILTERED"
             else:
-                print "{",ip_address,"}","UDP Port:",port, " ",
-                print " CLOSED"
+                if(results.v):
+                    print "{",ip_address,"}","UDP Port:",port, " ",
+                    print " CLOSED"
         s.close()
+    print ""
+
+def traceroute(ip_address):
+    print "<-------------TRACE ROUTE---------------------------->"
+    icmp = socket.getprotobyname('icmp')
+    max_hops = 30
+    ttl = 1
+    while True:
+        recv = socket.socket(socket.AF_INET, socket.SOCK_RAW, icmp)
+        send = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        send.setsockopt(socket.SOL_IP, socket.IP_TTL, ttl)
+        recv.bind(("", 33434))
+        send.sendto("", (ip_address, 33434))
+        address = None
+        try:
+            _, address = recv.recvfrom(512)
+            address = address[0]
+            try:
+                curr_name = socket.gethostbyaddr(address)[0]
+            except socket.error:
+                curr_name = address
+        except socket.error:
+            pass
+        
+        send.close()
+        recv.close()
+
+        if address is not None:
+            curr_host = "%s (%s)" % (curr_name, address)
+        else:
+            curr_host = "*"
+        print "%d\t%s" % (ttl, curr_host)
+
+        ttl = ttl + 1
+        if (address == ip_address) or (ttl > max_hops):
+            break
+    print ""
 
 def scan_host_tcp(ip_address):
+    print "<--------------TCP SCAN------------------------------>"
     try:
         for port in range(int(low_port),int(high_port)+1):  
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.settimeout(float(results.timeout))
-            r = s.connect_ex((ip_address, port))
-            
+            r = s.connect_ex((ip_address, port))   
             if(r == 0):
                 tcp_ports.append(port)
                 print "{",ip_address,"}", "TCP Port:",port, " ",
@@ -131,6 +176,7 @@ def scan_host_tcp(ip_address):
         print "Keyboard Interrupt"
         sys.exit()
 
+    print ""
 
 if __name__ == "__main__":
     main()
