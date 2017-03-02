@@ -4,42 +4,44 @@ import argparse
 import socket
 import sys
 from datetime import datetime
+import errno
+import os
 
-low_port = 0
-high_port = 0
-
+""" Argument setup
+"""
 parser = argparse.ArgumentParser()
 
 target_group = parser.add_mutually_exclusive_group(required=True)
 
-
-target_group.add_argument('-t', action='store', dest='target_ip',
+target_group.add_argument('-t', action='store', dest='target_ip', metavar='<TARGET IP>',
                     help='Target IP Address to scan')
 
-target_group.add_argument('-l', action='store', dest='target_list',
+target_group.add_argument('-l', action='store', dest='target_list', metavar='<HOST LIST>',
                     help='List of target IP Addresses to scan')
 
-parser.add_argument('-p', action='store', dest='port_range',
-                    help='Range of ports to scan. Ex. -p 1-1024', default=-1)
+parser.add_argument('-p', action='store', dest='port_range', metavar='<PORT RANGE>',
+                    help='Range of ports to scan. Ex. -p 1-1024. Default=1-1024', default='1-1024')
 
-parser.add_argument('-timeout', action='store', dest='timeout',
+parser.add_argument('-timeout', action='store', dest='timeout', metavar='<TIMEOUT VALUE>',
                     help='Give up on port after <timeout> seconds. Default=0.5s', default=0.5)
 
 parser.add_argument("-v", help="Turn on verbose mode",
+                    action="store_true")
+
+parser.add_argument("-d", help="Turn on service discovery for open ports",
                     action="store_true")
 
 parser.add_argument("-tr", help="Perform traceroute",
                     action="store_true")
                     
 parser.add_argument("-sT", help="Perform TCP scan", action="store_true")
+
 parser.add_argument("-sU", help="Perform UDP scan", action="store_true")
 
 results = parser.parse_args()
 
-print 'target_ip     =', results.target_ip
-print 'target_list     =', results.target_list
-print 'timeout     =', results.timeout
-#print 'port range     =', results.port_range	
+low_port = 0
+high_port = 0
 
 if results.port_range == '-': results.port_range = '1-65535'
 
@@ -49,17 +51,14 @@ else:
     low_port = results.port_range
     high_port = results.port_range
 
-
-print "low port",low_port
-print "high port",high_port
-
 tcp_ports = []
 udp_ports = []
 
-def main():
-    
-    t1 = datetime.now()
 
+def main():
+    """ Main program body
+    """
+    t1 = datetime.now()
 
     if(results.target_list != None): #Target list supplied
         with open(results.target_list) as f:
@@ -80,22 +79,47 @@ def main():
     print "<--------------SUMMARY------------------------------->"
     print 'Scanning Completed in: ', total, "seconds."
 
-    print "Open TCP Ports:",
-    print tcp_ports
+    print "Open TCP Ports:"
+    for port in tcp_ports:
+        print port,
 
-    print "Open/Filtered UDP Ports:",
-    print udp_ports
+        if(results.d):
+            service = ''
+            try:
+                service = socket.getservbyport(port, 'tcp')
+            except:
+                service = "Unknown"
+
+            print service
+        else: 
+            print
+
+    print "\nOpen/Filtered UDP Ports:",
+    for port in udp_ports:
+        print port,
+
+        if(results.d):
+            service = ''
+            try:
+                service = socket.getservbyport(port, 'udp')
+            except:
+                service = "Unknown"
+
+            print service
+        else: 
+            print
 
 def scan_host_udp(ip_address):
+    """ Performs a UDP port scan across the range of ports as given on the 
+    command line. This scan is only performed if the '-sU' option is given. 
+    """
     print "<--------------UDP SCAN------------------------------>"
     for port in range(int(low_port),int(high_port)+1):
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.settimeout(float(results.timeout))
-            s.sendto("TEST LINE", (ip_address, port))
+            s.sendto("", (ip_address, port))
             recv, svr = s.recvfrom(255)
-            # print recv
-            # print svr
         except Exception,e:
             try:
                 # print e 
@@ -111,17 +135,26 @@ def scan_host_udp(ip_address):
         s.close()
     print ""
 
+
 def traceroute(ip_address):
+    """ Performs a UDP tracerout to the target IP address.
+    This is only performed if the '-tr' option is given. 
+    """
     print "<-------------TRACE ROUTE---------------------------->"
     icmp = socket.getprotobyname('icmp')
     max_hops = 30
     ttl = 1
     while True:
-        recv = socket.socket(socket.AF_INET, socket.SOCK_RAW, icmp)
-        send = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        send.setsockopt(socket.SOL_IP, socket.IP_TTL, ttl)
-        recv.bind(("", 33434))
-        send.sendto("", (ip_address, 33434))
+        try:
+            recv = socket.socket(socket.AF_INET, socket.SOCK_RAW, icmp)
+            send = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            send.setsockopt(socket.SOL_IP, socket.IP_TTL, ttl)
+            recv.bind(("", 33434))
+            send.sendto("", (ip_address, 33434))
+        except socket.error, e:
+            print "Error:",
+            print os.strerror(e.errno)
+            return
         address = None
         try:
             _, address = recv.recvfrom(512)
@@ -148,6 +181,9 @@ def traceroute(ip_address):
     print ""
 
 def scan_host_tcp(ip_address):
+    """ Performs a TCP port scan across the range of ports as given on the 
+    command line. This scan is only performed if the '-sT' option is given. 
+    """
     print "<--------------TCP SCAN------------------------------>"
     try:
         for port in range(int(low_port),int(high_port)+1):  
